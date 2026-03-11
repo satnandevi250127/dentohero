@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smilence: Tooth Defender</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f0f8ff; font-family: sans-serif; touch-action: none; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        .score-board { font-size: 24px; font-weight: bold; background: white; padding: 10px 20px; border-radius: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        #game-over { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: white; padding: 30px; border-radius: 20px; text-align: center; 
+            display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+        }
+        button { padding: 10px 25px; font-size: 18px; background: #3498db; color: white; border: none; border-radius: 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div class="score-board">Skor: <span id="score">0</span></div>
+</div>
+
+<div id="game-over">
+    <h1>Aduh, Giginya Sakit! 🦷🆘</h1>
+    <h2 id="final-score">Skor: 0</h2>
+    <button onclick="resetGame()">Main Lagi</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const gameOverEl = document.getElementById('game-over');
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let score = 0;
+    let health = 5;
+    let gameActive = true;
+    let enemies = [];
+    let particles = [];
+
+    const tooth = { x: canvas.width / 2, y: canvas.height / 2, size: 100 };
+
+    class Enemy {
+        constructor() {
+            this.size = 40 + Math.random() * 20;
+            const side = Math.floor(Math.random() * 4);
+            if(side === 0) { this.x = -50; this.y = Math.random() * canvas.height; }
+            else if(side === 1) { this.x = canvas.width + 50; this.y = Math.random() * canvas.height; }
+            else if(side === 2) { this.y = -50; this.x = Math.random() * canvas.width; }
+            else { this.y = canvas.height + 50; this.x = Math.random() * canvas.width; }
+
+            this.type = Math.random() > 0.5 ? '🦠' : '🍬';
+            const angle = Math.atan2(tooth.y - this.y, tooth.x - this.x);
+            this.vx = Math.cos(angle) * (1.5 + score/150);
+            this.vy = Math.sin(angle) * (1.5 + score/150);
+        }
+        draw() {
+            ctx.font = `${this.size}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.type, this.x, this.y);
+        }
+        update() {
+            this.x += this.vx; this.y += this.vy;
+            const dist = Math.hypot(tooth.x - this.x, tooth.y - this.y);
+            if (dist < 60) { health--; createExplosion(this.x, this.y, '#8b5a2b'); return true; }
+            return false;
+        }
+    }
+
+    function createExplosion(x, y, color) {
+        for(let i = 0; i < 10; i++) particles.push({
+            x, y, color, vx: (Math.random()-0.5)*8, vy: (Math.random()-0.5)*8, alpha: 1
+        });
+    }
+
+    function drawTooth() {
+        ctx.save();
+        
+        // EFEK PERUBAHAN WARNA (Makin sedikit health, makin cokelat)
+        // Kita gunakan filter canvas untuk mengubah emoji putih jadi cokelat
+        let sepia = (5 - health) * 20; // 0% sampai 100%
+        let brightness = 100 - ((5 - health) * 10); // Makin redup/gelap
+        
+        ctx.filter = `sepia(${sepia}%) saturate(300%) brightness(${brightness}%)`;
+        
+        ctx.font = `${tooth.size}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🦷', tooth.x, tooth.y);
+        
+        ctx.restore();
+    }
+
+    function animate() {
+        if(!gameActive) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawTooth();
+
+        enemies = enemies.filter(e => { 
+            const hit = e.update(); 
+            if(!hit) e.draw(); 
+            return !hit; 
+        });
+
+        particles = particles.filter(p => {
+            p.x += p.vx; p.y += p.vy; p.alpha -= 0.03;
+            ctx.globalAlpha = p.alpha;
+            ctx.fillStyle = p.color;
+            ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+            ctx.globalAlpha = 1;
+            return p.alpha > 0;
+        });
+
+        if(health <= 0) { gameActive = false; gameOverEl.style.display = 'block'; document.getElementById('final-score').innerText = `Skor: ${score}`; }
+        requestAnimationFrame(animate);
+    }
+
+    function handleInput(e) {
+        if(!gameActive) return;
+        const x = e.touches ? e.touches[0].clientX : e.clientX;
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        enemies = enemies.filter(e => {
+            if(Math.hypot(x - e.x, y - e.y) < e.size) {
+                score += 10; scoreEl.innerText = score;
+                createExplosion(e.x, e.y, e.type === '🦠' ? '#2ecc71' : '#f1c40f');
+                return false;
+            }
+            return true;
+        });
+    }
+
+    window.addEventListener('mousedown', handleInput);
+    window.addEventListener('touchstart', handleInput);
+    function spawn() { if(gameActive) { enemies.push(new Enemy()); setTimeout(spawn, Math.max(400, 1500 - score * 5)); } }
+    function resetGame() { location.reload(); }
+
+    animate();
+    spawn();
+</script>
+</body>
+</html>
